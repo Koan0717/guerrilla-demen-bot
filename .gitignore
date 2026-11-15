@@ -1,0 +1,9 @@
+# トークン（絶対に上げない）
+.env
+
+# 記録データ
+*.db
+*.db-journal
+
+__pycache__/
+*.pyc
