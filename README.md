@@ -1,6 +1,13 @@
 # ゲリラ出面表BOT
 
-ゲリラに出た枠をボタンで記録して、月ごとに「誰が何回出て、いくら払うか」を自動で集計する Discord BOT。
+ゲリラに出た枠をボタンで記録して、月ごとに「誰が何回出て、いくら払うか」を自動で集計する Discord BOT ＋ Web版。
+
+```
+Discord ⇄ BOT（ConoHa VPS / pm2）─┐
+                                   ├─ Supabase（記録の保存先・共通）
+ブラウザ ⇄ Web（Vercel）──────────┘
+```
+BOTで押してもWebで押しても同じ記録に入ります（Webで押した分は20秒以内にDiscordのパネルにも反映）。
 
 - 枠: 21:00 / 21:30 / 22:00 / 22:30 / 23:00 / 23:30
 - 単価: 1回 240円（`/単価` で変更可。変更前の記録は前の単価のまま計算）
@@ -52,3 +59,44 @@ pm2 save                                       # 再起動後も自動で立ち�
 - ログ: `pm2 logs demen-bot` / 再起動: `pm2 restart demen-bot`
 - 更新: `git pull && venv/bin/pip install -r requirements.txt && pm2 restart demen-bot`
 - バックアップするなら `demen.db` をコピーしておく
+
+## Web版（Vercel）
+
+Discordでログインして、スマホ/PCから 参加記録・月の集計・自分の履歴 が見られる。サーバーのメンバー以外は入れない。
+
+### 1. 記録の保存先を作る（Supabase・無料）
+1. https://supabase.com でプロジェクトを作る（Region は Tokyo）
+2. 上の **Connect** → **Connection string** の **Transaction pooler**（ポート6543）のURLをコピーし、`[YOUR-PASSWORD]` をDBパスワードに置き換える → これが `DATABASE_URL`
+3. 今までの記録を引き継ぐなら、`demen.db` がある場所で `.env` に `DATABASE_URL` を書いて `python migrate_to_cloud.py`
+
+### 2. BOT（VPS）を Supabase に切り替える
+VPS の `.env` に `DATABASE_URL=...` を追加して
+```bash
+git pull && venv/bin/pip install -r requirements.txt && pm2 restart demen-bot
+```
+
+### 3. Discord のログイン設定
+Developer Portal → 同じアプリの **OAuth2**
+- **Client ID** と **Client Secret**（Reset Secret）をメモ
+- **Redirects** に `https://<VercelのURL>/callback` を追加（手元で試すなら `http://localhost:8000/callback` も）
+
+### 4. Vercel にデプロイ
+1. https://vercel.com/new で GitHub の `guerrilla-demen-bot` を Import（Framework は FastAPI のまま）
+2. **Environment Variables** に入れる
+
+| 名前 | 値 |
+|---|---|
+| `DATABASE_URL` | Supabase のURL（BOTと同じ） |
+| `GUILD_ID` | サーバーID |
+| `DISCORD_CLIENT_ID` | Client ID |
+| `DISCORD_CLIENT_SECRET` | Client Secret |
+| `BASE_URL` | `https://<VercelのURL>`（最後の / なし） |
+| `SESSION_SECRET` | 長いランダム文字列（`python -c "import secrets;print(secrets.token_hex(32))"`） |
+
+3. Deploy → 出てきたURLを開いて「Discordでログイン」。以後は GitHub に push するたびに自動で更新される
+
+### 手元で試す
+```bash
+pip install -r requirements.txt uvicorn
+python -m uvicorn app:app --port 8000
+```

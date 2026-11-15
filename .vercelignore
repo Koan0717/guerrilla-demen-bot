@@ -1,0 +1,8 @@
+.env
+*.db
+venv/
+__pycache__/
+start.bat
+ecosystem.config.js
+.claude/
+migrate_to_cloud.py

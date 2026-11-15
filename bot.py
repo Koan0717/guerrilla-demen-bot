@@ -259,12 +259,12 @@ async def auto_post_loop():
             print(f"自動投稿に失敗: {e}")
 
 
-@tasks.loop(minutes=1)
+@tasks.loop(seconds=20)
 async def panel_refresh_loop():
-    """日付が変わったら常設パネルを新しい日に書き換える"""
+    """日付が変わった／Webで記録が変わったら常設パネルを描き直す"""
     date = today()
     for s in db.panel_targets(conn):
-        if s["board_date"] == date:
+        if s["board_date"] == date and not s["board_dirty"]:
             continue
         channel = bot.get_channel(s["board_channel_id"])
         if channel is None:

@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ゲリラ出面表</title>
+<style>
+  :root {
+    --bg: #f4f5f8; --card: #ffffff; --text: #1d2130; --muted: #6b7185; --line: #e3e5ec;
+    --accent: #5865f2; --accent-soft: #e8eaff; --ok: #1f9d55; --ok-soft: #e3f6ea; --gold: #d99a00;
+    --shadow: 0 1px 2px rgba(20,24,40,.06), 0 4px 16px rgba(20,24,40,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15171e; --card: #1f222c; --text: #eceef4; --muted: #9298ab; --line: #2e3240;
+      --accent: #7983ff; --accent-soft: #2a2e52; --ok: #3ccf7f; --ok-soft: #1b3a2a; --gold: #f2c14e;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 16px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+  h1 { font-size: 20px; margin: 0; }
+  .me { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+  .me img { width: 28px; height: 28px; border-radius: 50%; }
+  .me a { color: var(--muted); }
+  .tabs { display: flex; gap: 4px; background: var(--card); border-radius: 12px; padding: 4px; box-shadow: var(--shadow); margin-bottom: 16px; }
+  .tabs button { flex: 1; border: 0; background: none; padding: 10px; border-radius: 9px; font-weight: 600; color: var(--muted); }
+  .tabs button.on { background: var(--accent); color: #fff; }
+  .card { background: var(--card); border-radius: 14px; padding: 16px; box-shadow: var(--shadow); margin-bottom: 12px; }
+  .nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+  .nav button { border: 1px solid var(--line); background: var(--card); border-radius: 10px; width: 40px; height: 40px; font-size: 18px; }
+  .nav .label { font-size: 18px; font-weight: 700; text-align: center; flex: 1; }
+  .nav .label small { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
+  .slots { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  @media (min-width: 600px) { .slots { grid-template-columns: repeat(3, 1fr); } }
+  .slot { text-align: left; border: 2px solid var(--line); background: var(--card); border-radius: 14px; padding: 12px; min-height: 104px;
+    display: flex; flex-direction: column; gap: 6px; transition: transform .08s; }
+  .slot:active { transform: scale(.97); }
+  .slot.on { border-color: var(--ok); background: var(--ok-soft); }
+  .slot .t { display: flex; justify-content: space-between; align-items: baseline; }
+  .slot .time { font-size: 20px; font-weight: 800; }
+  .slot .n { font-size: 13px; color: var(--muted); }
+  .slot .state { font-size: 12px; font-weight: 700; color: var(--muted); }
+  .slot.on .state { color: var(--ok); }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip { font-size: 12px; background: var(--bg); border-radius: 999px; padding: 2px 8px; }
+  .slot.on .chip { background: var(--card); }
+  .note { font-size: 13px; color: var(--muted); margin: 10px 2px 0; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
+  .stat { background: var(--card); border-radius: 14px; padding: 12px; box-shadow: var(--shadow); }
+  .stat .k { font-size: 12px; color: var(--muted); }
+  .stat .v { font-size: 20px; font-weight: 800; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .rank { list-style: none; margin: 0; padding: 0; }
+  .rank li { display: grid; grid-template-columns: 28px 1fr auto; gap: 8px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+  .rank li:first-child { border-top: 0; }
+  .rank .pos { font-weight: 800; color: var(--muted); text-align: center; }
+  .rank .bar { height: 6px; background: var(--accent-soft); border-radius: 3px; margin-top: 4px; overflow: hidden; }
+  .rank .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+  .rank .amt { text-align: right; font-variant-numeric: tabular-nums; }
+  .rank .amt b { display: block; font-size: 16px; }
+  .rank .amt span { font-size: 12px; color: var(--muted); }
+  .rank li.mine .name { font-weight: 800; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  .hbars { display: grid; gap: 6px; }
+  .hbar { display: grid; grid-template-columns: 48px 1fr 32px; gap: 8px; align-items: center; font-size: 13px; }
+  .hbar .track { height: 10px; background: var(--bg); border-radius: 5px; overflow: hidden; }
+  .hbar .track i { display: block; height: 100%; background: var(--accent); border-radius: 5px; }
+  .hbar .c { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .hist { list-style: none; margin: 0; padding: 0; }
+  .hist li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 14px; }
+  .hist li:first-child { border-top: 0; }
+  .hist .s { color: var(--muted); text-align: right; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 12px; padding: 12px 18px; font-weight: 700;
+    background: var(--accent); color: #fff; text-decoration: none; }
+  .btn.sub { background: var(--card); color: var(--text); border: 1px solid var(--line); font-weight: 600; padding: 8px 14px; font-size: 14px; }
+  .login { text-align: center; padding: 48px 16px; }
+  .login p { color: var(--muted); }
+  .empty { color: var(--muted); text-align: center; padding: 16px 0; }
+  .err { background: #fde8e8; color: #9b1c1c; border-radius: 12px; padding: 10px 14px; margin-bottom: 12px; font-size: 14px; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--text); color: var(--bg);
+    padding: 10px 16px; border-radius: 999px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>📋 ゲリラ出面表</h1>
+    <div class="me" id="me" hidden></div>
+  </header>
+
+  <div id="error" class="err" hidden></div>
+
+  <section id="login" class="card login" hidden>
+    <p>サーバーのメンバーだけが使えます</p>
+    <a class="btn" href="/login">Discordでログイン</a>
+  </section>
+
+  <main id="app" hidden>
+    <nav class="tabs">
+      <button data-tab="board" class="on">出面表</button>
+      <button data-tab="summary">集計</button>
+      <button data-tab="my">自分</button>
+    </nav>
+
+    <section data-view="board">
+      <div class="nav">
+        <button id="dPrev" aria-label="前の日">‹</button>
+        <div class="label" id="dLabel"></div>
+        <button id="dNext" aria-label="次の日">›</button>
+      </div>
+      <div class="slots" id="slots"></div>
+      <p class="note" id="boardNote"></p>
+    </section>
+
+    <section data-view="summary" hidden>
+      <div class="nav">
+        <button class="mPrev" aria-label="前の月">‹</button>
+        <div class="label mLabel"></div>
+        <button class="mNext" aria-label="次の月">›</button>
+      </div>
+      <div class="stats" id="sumStats"></div>
+      <div class="card"><h2>支払額ランキング</h2><ul class="rank" id="rank"></ul></div>
+      <div class="card"><h2>枠ごとの延べ参加</h2><div class="hbars" id="slotBars"></div></div>
+      <a class="btn sub" id="csv" href="#">⬇ CSVダウンロード</a>
+    </section>
+
+    <section data-view="my" hidden>
+      <div class="nav">
+        <button class="mPrev" aria-label="前の月">‹</button>
+        <div class="label mLabel"></div>
+        <button class="mNext" aria-label="次の月">›</button>
+      </div>
+      <div class="stats" id="myStats"></div>
+      <div class="card"><h2>参加した日</h2><ul class="hist" id="hist"></ul></div>
+    </section>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const yen = n => n.toLocaleString('ja-JP') + '円';
+const WD = '日月火水木金土';
+
+let ME = null, date = null, month = null, tab = 'board';
+
+const ERRORS = {
+  notmember: 'このDiscordアカウントは対象サーバーのメンバーじゃないみたい',
+  state: 'ログインをやり直してね', token: 'Discordとの連携に失敗しました', cancel: 'ログインをキャンセルしました',
+};
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { credentials: 'same-origin', ...opts });
+  if (res.status === 401) { showLogin(); throw new Error('login'); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || '通信エラー');
+  return data;
+}
+
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 1600);
+}
+
+function showError(msg) { const e = $('#error'); e.textContent = msg; e.hidden = !msg; }
+function showLogin() { $('#login').hidden = false; $('#app').hidden = true; $('#me').hidden = true; }
+
+function parseD(s) { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); }
+function fmtD(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function addDays(s, n) { const d = parseD(s); d.setDate(d.getDate() + n); return fmtD(d); }
+function addMonths(s, n) { const [y, m] = s.split('-').map(Number); const d = new Date(y, m - 1 + n, 1); return fmtD(d).slice(0, 7); }
+function jpDate(s) { const d = parseD(s); return `${d.getMonth()+1}/${d.getDate()}(${WD[d.getDay()]})`; }
+function jpMonth(s) { const [y, m] = s.split('-').map(Number); return `${y}年${m}月`; }
+
+// ---------- 出面表 ----------
+async function loadBoard() {
+  $('#dLabel').innerHTML = `${jpDate(date)}<small>${date === ME.today ? '今日' : ''}</small>`;
+  $('#dNext').disabled = date >= ME.today;
+  const data = await api(`/api/day?date=${date}`);
+  const mine = data.slots.filter(s => s.joined).length;
+  $('#slots').innerHTML = data.slots.map(s => `
+    <button class="slot ${s.joined ? 'on' : ''}" data-slot="${s.key}">
+      <div class="t"><span class="time">${s.label}</span><span class="n">${s.members.length}人</span></div>
+      <span class="state">${s.joined ? '✓ 参加中（押すと取消）' : '押して参加'}</span>
+      <div class="chips">${s.members.map(m => `<span class="chip">${esc(m.name)}</span>`).join('')}</div>
+    </button>`).join('');
+  $('#boardNote').textContent =
+    `この日のあなた: ${mine}回 / ${yen(mine * ME.price)}（単価 ${yen(ME.price)}・朝5時で次の日に切り替わります）`;
+}
+
+$('#slots').addEventListener('click', async e => {
+  const b = e.target.closest('.slot'); if (!b || b.disabled) return;
+  b.disabled = true;
+  try {
+    const r = await api('/api/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, slot: b.dataset.slot }) });
+    toast(r.joined ? '参加を記録したよ ✅' : '取り消したよ ↩️');
+    await loadBoard();
+  } catch (err) { if (err.message !== 'login') toast(err.message); b.disabled = false; }
+});
+$('#dPrev').onclick = () => { date = addDays(date, -1); loadBoard().catch(fail); };
+$('#dNext').onclick = () => { if (date < ME.today) { date = addDays(date, 1); loadBoard().catch(fail); } };
+
+// ---------- 集計 ----------
+function stat(k, v) { return `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`; }
+
+async function loadSummary() {
+  const d = await api(`/api/summary?month=${month}`);
+  $('#sumStats').innerHTML = stat('延べ参加', `${d.total_count}回`) + stat('合計', yen(d.total_amount)) + stat('記録した日', `${d.days}日`);
+  const max = Math.max(1, ...d.ranking.map(r => r.count));
+  const medal = ['🥇', '🥈', '🥉'];
+  $('#rank').innerHTML = d.ranking.length ? d.ranking.map((r, i) => `
+    <li class="${r.user_id === ME.user.id ? 'mine' : ''}">
+      <span class="pos">${medal[i] || i + 1}</span>
+      <div><div class="name">${esc(r.user_name)}</div><div class="bar"><i style="width:${r.count / max * 100}%"></i></div></div>
+      <div class="amt"><b>${yen(r.amount)}</b><span>${r.count}回</span></div>
+    </li>`).join('') : '<li class="empty">この月の記録はまだないよ</li>';
+  const smax = Math.max(1, ...d.slots.map(s => s.count));
+  $('#slotBars').innerHTML = d.slots.map(s => `
+    <div class="hbar"><span>${s.label}</span><div class="track"><i style="width:${s.count / smax * 100}%"></i></div><span class="c">${s.count}</span></div>`).join('');
+  $('#csv').href = `/api/export.csv?month=${month}`;
+}
+
+// ---------- 自分 ----------
+async function loadMy() {
+  const d = await api(`/api/my?month=${month}`);
+  $('#myStats').innerHTML = stat('参加回数', `${d.count}回`) + stat('支払額', yen(d.amount)) + stat('参加した日', `${d.days.length}日`);
+  $('#hist').innerHTML = d.days.length ? d.days.map(x =>
+    `<li><span>${jpDate(x.date)}</span><span class="s">${x.slots.join(' / ')}</span></li>`).join('')
+    : '<li class="empty">この月の記録はないよ</li>';
+}
+
+// ---------- 共通 ----------
+function fail(err) { if (err.message !== 'login') showError(err.message); }
+
+function render() {
+  showError('');
+  $$('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  $$('[data-view]').forEach(v => v.hidden = v.dataset.view !== tab);
+  $$('.mLabel').forEach(l => l.textContent = jpMonth(month));
+  $$('.mNext').forEach(b => b.disabled = month >= ME.today.slice(0, 7));
+  ({ board: loadBoard, summary: loadSummary, my: loadMy })[tab]().catch(fail);
+}
+
+$$('.tabs button').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
+$$('.mPrev').forEach(b => b.onclick = () => { month = addMonths(month, -1); render(); });
+$$('.mNext').forEach(b => b.onclick = () => { if (month < ME.today.slice(0, 7)) { month = addMonths(month, 1); render(); } });
+
+// 他の人の押した分も反映されるよう、出面表を見ている間は30秒ごとに更新
+setInterval(() => { if (ME && tab === 'board' && !document.hidden) loadBoard().catch(() => {}); }, 30000);
+
+(async () => {
+  const q = new URLSearchParams(location.search);
+  if (q.get('error')) { showError(ERRORS[q.get('error')] || 'エラーが起きました'); history.replaceState(null, '', '/'); }
+  try { ME = await api('/api/me'); } catch (err) { fail(err); return; }
+  date = ME.today; month = ME.today.slice(0, 7);
+  $('#me').innerHTML = `${ME.user.avatar ? `<img src="${esc(ME.user.avatar)}" alt="">` : ''}<span>${esc(ME.user.name)}</span> <a href="/logout">ログアウト</a>`;
+  $('#me').hidden = false; $('#login').hidden = true; $('#app').hidden = false;
+  render();
+})();
+</script>
+</body>
+</html>
