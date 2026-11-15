@@ -35,3 +35,20 @@
    Windowsなら `start.bat` をダブルクリックでもOK
 
 データはこのフォルダの `demen.db` に保存されます（消すと記録も消えるので注意）。
+
+## VPS (pm2) で常時動かす
+
+```bash
+sudo apt install -y python3-venv git          # 初回だけ
+git clone https://github.com/Koan0717/guerrilla-demen-bot.git
+cd guerrilla-demen-bot
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt
+cp .env.example .env && nano .env              # トークンを書く
+pm2 start ecosystem.config.js
+pm2 save                                       # 再起動後も自動で立ち上がるように
+```
+
+- ログ: `pm2 logs demen-bot` / 再起動: `pm2 restart demen-bot`
+- 更新: `git pull && venv/bin/pip install -r requirements.txt && pm2 restart demen-bot`
+- バックアップするなら `demen.db` をコピーしておく
