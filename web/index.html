@@ -161,7 +161,7 @@ async function api(path, opts = {}) {
   const res = await fetch(path, { credentials: 'same-origin', ...opts });
   if (res.status === 401) { showLogin(); throw new Error('login'); }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || '通信エラー');
+  if (!res.ok) throw new Error(data.error || `通信エラー（${res.status}）`);
   return data;
 }
 

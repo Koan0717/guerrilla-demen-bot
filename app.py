@@ -296,6 +296,33 @@ def http_error(request, exc):
     return JSONResponse({"error": exc.detail}, status_code=exc.status_code)
 
 
+def _explain(exc: Exception) -> str:
+    """想定外のエラーを、画面に出せる短い説明にする（パスワード等は伏せる）"""
+    msg = f"{type(exc).__name__}: {exc}"
+    url = os.environ.get("DATABASE_URL") or ""
+    if url:
+        msg = msg.replace(url, "<DATABASE_URL>")
+        if "@" in url and ":" in url.split("@")[0]:
+            pw = url.split("@")[0].rsplit(":", 1)[1]
+            if pw:
+                msg = msg.replace(pw, "****")
+    if not url and os.environ.get("VERCEL"):
+        return "DATABASE_URL が Vercel に設定されていません（Settings → Environment Variables に入れて Redeploy）"
+    if "psycopg" in type(exc).__module__ or "OperationalError" in msg:
+        return "データベースに繋がりません: " + msg[:300]
+    return "サーバーエラー: " + msg[:300]
+
+
+@app.exception_handler(Exception)
+def server_error(request, exc):
+    import traceback
+
+    traceback.print_exc()  # Vercel のログにも残す
+    global _conn
+    _conn = None  # 次のリクエストで繋ぎ直す
+    return JSONResponse({"error": _explain(exc)}, status_code=500)
+
+
 # ---------- 画面 ----------
 @app.get("/")
 def index():
