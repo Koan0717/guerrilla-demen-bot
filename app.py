@@ -14,7 +14,7 @@ import secrets
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -47,6 +47,8 @@ SESSION_DAYS = 30
 DAY_START_HOUR = 5  # BOTと同じ: 朝5時までは前日扱い
 JST = timezone(timedelta(hours=9))
 DISCORD_API = "https://discord.com/api/v10"
+ADMINISTRATOR, MANAGE_GUILD = 0x8, 0x20  # Discord の権限ビット
+LINK_CODE_SECONDS = 600  # BOT接続コードの有効期限
 SECURE_COOKIE = BASE_URL.startswith("https://")
 if SECURE_COOKIE and not os.environ.get("SESSION_SECRET"):
     raise RuntimeError("本番では SESSION_SECRET（長いランダム文字列）を設定してね")
@@ -108,7 +110,7 @@ def read_cookie(value: str | None):
 
 def current_user(request: Request):
     user = read_cookie(request.cookies.get("session"))
-    if not user:
+    if not user or "purpose" in user or "id" not in user:  # 接続コードをクッキーとして使わせない
         raise HTTPException(401, "ログインしてね")
     return user
 
@@ -123,7 +125,7 @@ def login():
         "client_id": CLIENT_ID,
         "redirect_uri": f"{BASE_URL}/callback",
         "response_type": "code",
-        "scope": "identify guilds.members.read",
+        "scope": "identify guilds guilds.members.read",  # guilds: 管理者かどうかの判定に使う
         "state": state,
         "prompt": "none",
     }
@@ -154,6 +156,13 @@ def callback(request: Request, code: str = "", state: str = "", error: str = "")
         headers = {"Authorization": f"Bearer {tok.json()['access_token']}"}
         me = http.get(f"{DISCORD_API}/users/@me", headers=headers).json()
         member = http.get(f"{DISCORD_API}/users/@me/guilds/{GUILD_ID}/member", headers=headers)
+        guilds = http.get(f"{DISCORD_API}/users/@me/guilds", headers=headers)
+    admin = False
+    if guilds.status_code == 200:
+        for g in guilds.json():
+            if str(g.get("id")) == str(GUILD_ID):
+                perms = int(g.get("permissions") or 0)
+                admin = bool(g.get("owner")) or bool(perms & (ADMINISTRATOR | MANAGE_GUILD))
 
     if member.status_code != 200:
         return RedirectResponse("/?error=notmember")
@@ -167,6 +176,7 @@ def callback(request: Request, code: str = "", state: str = "", error: str = "")
         "id": str(me["id"]),
         "name": name,
         "avatar": avatar,
+        "admin": admin,
         "exp": int(time.time()) + SESSION_DAYS * 86400,
     }
     res = RedirectResponse("/")
@@ -190,7 +200,8 @@ def logout():
 def api_me(user=Depends(current_user)):
     s = db.get_settings(get_db(), GUILD_ID)
     return {
-        "user": {"id": user["id"], "name": user["name"], "avatar": user.get("avatar")},
+        "user": {"id": user["id"], "name": user["name"], "avatar": user.get("avatar"),
+                 "admin": user.get("admin"), "admin_known": "admin" in user},
         "today": today(),
         "price": s["price"],
         "slots": [{"key": k, "label": v} for k, v in db.SLOTS.items()],
@@ -205,7 +216,8 @@ def api_status(user=Depends(current_user)):
     """設定画面の「接続状況」。DBが落ちていても必ず答える"""
     global _conn
     url = os.environ.get("DATABASE_URL") or ""
-    database = {"ok": False, "kind": "Postgres" if url else "SQLite（この端末のファイル）", "latency_ms": None, "error": None}
+    database = {"ok": False, "kind": "Postgres" if url else "SQLite（この端末のファイル）", "latency_ms": None, "error": None,
+                "target": db_target(url)}
     bot = {"state": "unknown", "name": None, "seen": None, "seconds_ago": None, "started": None, "latency_ms": None}
     row = None
     try:
@@ -231,6 +243,110 @@ def api_status(user=Depends(current_user)):
                 started=row["bot_started"], latency_ms=row["bot_latency_ms"],
             )
     return {"database": database, "bot": bot, "guild_id": str(GUILD_ID), "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+
+
+# ---------- BOT をデータベースに繋ぐ（接続コード） ----------
+# 管理者がサイトでコードを発行 → VPS で connect_db.py にそのコードを渡すと、
+# サイトが DATABASE_URL を返し、BOT の .env に書き込まれる。
+# コードは署名付き・10分で失効なので、DBに保存しなくても偽造や使い回しはできない。
+def db_target(url):
+    """接続URLから「どのSupabaseか」を、パスワード抜きで取り出す（画面表示用）"""
+    if not url:
+        return None
+    try:
+        u = urlsplit(url)
+        user, host = u.username or "", u.hostname or ""
+    except ValueError:
+        return {"label": "（URLの形式が変）", "project": None, "host": None, "pooler": False}
+    project = None
+    if user.startswith("postgres."):
+        project = user.split(".", 1)[1]  # プーラー: postgres.<プロジェクトID>
+    elif host.startswith("db.") and host.endswith(".supabase.co"):
+        project = host.split(".")[1]  # 直接接続: db.<プロジェクトID>.supabase.co
+    pooler = "pooler.supabase.com" in host
+    label = f"Supabase {project}" if project else host
+    return {"label": label, "project": project, "host": host, "port": u.port, "pooler": pooler}
+
+
+def _keystream(nonce: bytes, n: int) -> bytes:
+    out, i = b"", 0
+    while len(out) < n:
+        out += hmac.new(SESSION_SECRET, b"bot-link" + nonce + i.to_bytes(4, "big"), hashlib.sha256).digest()
+        i += 1
+    return out[:n]
+
+
+def _seal(text: str) -> tuple[str, str]:
+    """指定された接続URLをコードに入れるときの暗号化（コマンドに生のパスワードが出ないように）"""
+    nonce = secrets.token_bytes(12)
+    raw = text.encode()
+    enc = bytes(a ^ b for a, b in zip(raw, _keystream(nonce, len(raw))))
+    return base64.urlsafe_b64encode(nonce).decode(), base64.urlsafe_b64encode(enc).decode()
+
+
+def _unseal(nonce_b64: str, enc_b64: str) -> str:
+    nonce, enc = base64.urlsafe_b64decode(nonce_b64), base64.urlsafe_b64decode(enc_b64)
+    return bytes(a ^ b for a, b in zip(enc, _keystream(nonce, len(enc)))).decode()
+
+
+class LinkCreateBody(BaseModel):
+    database_url: str | None = None  # 空 = このサイトと同じDB
+
+
+@app.post("/api/bot-link/create")
+def bot_link_create(body: LinkCreateBody, user=Depends(current_user)):
+    if "admin" not in user:
+        raise HTTPException(403, "権限を確認するため、いったんログアウトしてログインし直してね")
+    if not user["admin"]:
+        raise HTTPException(403, "サーバーの管理者だけが使えます")
+
+    payload = {"purpose": "bot-link", "guild": str(GUILD_ID), "by": user["id"],
+               "exp": int(time.time()) + LINK_CODE_SECONDS}
+    custom = (body.database_url or "").strip()
+    if custom:
+        if not custom.startswith(("postgresql://", "postgres://")):
+            raise HTTPException(400, "postgresql:// で始まる接続URLを入れてね（Supabase の Connect → Connection string）")
+        if "[YOUR-PASSWORD]" in custom:
+            raise HTTPException(400, "[YOUR-PASSWORD] をDBのパスワードに置き換えてね")
+        try:  # 本当に繋がるか先に確かめる（ついでに表も作られる）
+            test = db.DB(url=custom)
+            db.ping(test)
+            test.close()
+        except Exception as e:
+            msg = str(e).replace(custom, "<URL>")
+            raise HTTPException(400, f"そのURLには繋がりませんでした: {type(e).__name__}: {msg[:200]}")
+        payload["n"], payload["u"] = _seal(custom)
+        target = db_target(custom)
+    else:
+        if not os.environ.get("DATABASE_URL"):
+            raise HTTPException(400, "このサイト（Vercel）に DATABASE_URL が設定されていません")
+        target = db_target(os.environ["DATABASE_URL"])
+
+    code = make_cookie(payload)
+    command = (
+        "git pull && venv/bin/pip install -q -r requirements.txt && "
+        f"venv/bin/python connect_db.py {BASE_URL} {code} && pm2 restart demen-bot"
+    )
+    return {"command": command, "expires": payload["exp"], "target": target, "same_as_site": not custom}
+
+
+class LinkBody(BaseModel):
+    code: str
+
+
+@app.post("/api/bot-link/redeem")
+def bot_link_redeem(body: LinkBody):
+    data = read_cookie(body.code)  # 署名と期限をチェック
+    if not data or data.get("purpose") != "bot-link":
+        raise HTTPException(400, "コードが無効か期限切れです。サイトでもう一度発行してね")
+    if data.get("u"):
+        url = _unseal(data["n"], data["u"])
+    else:
+        url = os.environ.get("DATABASE_URL")
+        if not url:
+            raise HTTPException(400, "サイトに DATABASE_URL が設定されていません")
+    print(f"BOT接続コードが使われました（発行者 {data.get('by')}・接続先 {db_target(url)['label']}）")
+    return {"database_url": url, "guild_id": data.get("guild")}
 
 
 @app.get("/api/day")

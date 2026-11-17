@@ -100,6 +100,14 @@
   .kv dt { color: var(--muted); } .kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
   .row-end { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 4px; }
   .row-end small { color: var(--muted); font-size: 12px; }
+  .opt { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; cursor: pointer; }
+  .opt:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+  .opt input { margin-top: 3px; accent-color: var(--accent); }
+  .opt small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; overflow-wrap: anywhere; }
+  .field { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--text); font: inherit; font-size: 13px; margin-bottom: 10px; }
+  .cmd { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 12px; white-space: pre-wrap; word-break: break-all; margin: 8px 0; max-height: 140px; overflow: auto; }
+  .msg { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+  .msg.ng { color: #e04848; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -164,6 +172,25 @@
         <div class="row-end"><small id="connAt"></small><button class="btn sub" id="connRe">↻ 再チェック</button></div>
       </div>
       <div class="card" id="infoCard" hidden><h2>情報</h2><dl class="kv" id="info"></dl></div>
+      <div class="card" id="linkCard" hidden>
+        <h2>BOTの接続先データベース</h2>
+        <div id="linkForm">
+          <label class="opt"><input type="radio" name="linkMode" value="same" checked>
+            <span><b>このサイトと同じ Supabase</b>（おすすめ）<small id="linkSame"></small></span></label>
+          <label class="opt"><input type="radio" name="linkMode" value="custom">
+            <span><b>別の Supabase を指定</b><small>Webとは記録が別々になります</small></span></label>
+          <input class="field" id="linkUrl" type="password" autocomplete="off" spellcheck="false" hidden
+            placeholder="postgresql://postgres.xxxx:パスワード@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres">
+          <button class="btn" id="linkGo">接続コマンドを発行</button>
+        </div>
+        <div id="linkOut" hidden>
+          <p class="msg">VPS にログインして、このコマンドを貼り付けて実行してね（BOTのフォルダが違う場所なら <code>cd</code> の行を直す）。<b id="linkLeft"></b></p>
+          <pre class="cmd" id="linkCmd"></pre>
+          <button class="btn sub" id="linkCopy">コピー</button>
+          <button class="btn sub" id="linkAgain">やり直す</button>
+        </div>
+        <p class="msg" id="linkMsg" hidden></p>
+      </div>
     </section>
   </main>
 </div>
@@ -294,7 +321,7 @@ async function loadSettings() {
   }
   const d = st.database, b = st.bot;
   const dbRow = d.ok
-    ? connRow('データベース', 'ok', '接続OK', `${esc(d.kind)}・応答 ${d.latency_ms}ms`)
+    ? connRow('データベース', 'ok', '接続OK', `${esc(d.kind)}${targetText(d.target)}・応答 ${d.latency_ms}ms`)
     : connRow('データベース', 'ng', '接続できません', `${esc(d.kind)}<br><code>${esc(d.error || '')}</code>`);
   let botRow;
   if (!d.ok) botRow = connRow('BOT', '', '不明', 'データベースに繋がらないので確認できません');
@@ -304,13 +331,69 @@ async function loadSettings() {
   else if (b.state === 'offline') botRow = connRow('BOT', 'ng', '停止中？',
     `${esc(b.name || '')}・最後の応答は ${ago(b.seconds_ago)}（${jpTime(b.seen)}）<br>VPSで <code>pm2 status</code> / <code>pm2 logs demen-bot</code> を確認してね`);
   else botRow = connRow('BOT', 'warn', '応答記録なし',
-    'まだBOTから一度も報告がありません。BOTを最新版に更新して、Webと同じ DATABASE_URL を設定してね');
+    'このデータベースには、まだBOTから一度も報告がありません。BOTが別のDB（または手元のファイル）を使っているかも。下の「BOTの接続先データベース」から繋いでね');
   $('#conn').innerHTML = dbRow + botRow;
   $('#connAt').textContent = `${jpTime(st.checked_at)} 時点`;
   $('#infoCard').hidden = !ME;
   if (ME) $('#info').innerHTML =
     `<dt>単価</dt><dd>${yen(ME.price)}</dd><dt>今日（朝5時切替）</dt><dd>${jpDate(ME.today)}</dd><dt>サーバーID</dt><dd>${esc(st.guild_id)}</dd>`;
+  renderLink(d);
 }
+
+function targetText(t) { return t ? `・${esc(t.label)}${t.pooler ? '（プーラー）' : ''}` : ''; }
+
+// ---------- BOTの接続先 ----------
+let linkTimer = null;
+function linkMsg(text, ng) { const m = $('#linkMsg'); m.textContent = text || ''; m.hidden = !text; m.classList.toggle('ng', !!ng); }
+function renderLink(d) {
+  const card = $('#linkCard');
+  card.hidden = !ME;
+  if (!ME) return;
+  const u = ME.user;
+  const can = u.admin_known && u.admin;
+  $('#linkForm').hidden = !can || !$('#linkOut').hidden;
+  if (!u.admin_known) linkMsg('この機能を使うには、いったんログアウトしてログインし直してね（管理者かどうかを確認するため）');
+  else if (!u.admin) linkMsg('BOTの接続先を変えられるのは、サーバーの管理者だけです');
+  else if ($('#linkOut').hidden) linkMsg('');
+  $('#linkSame').textContent = d.target ? `${d.target.label}${d.target.pooler ? '（プーラー）' : ''}` : 'このサイトに DATABASE_URL が設定されていません';
+}
+$$('input[name=linkMode]').forEach(r => r.onchange = () => {
+  $('#linkUrl').hidden = r.value !== 'custom' || !r.checked;
+  if (r.checked && r.value === 'custom') $('#linkUrl').focus();
+});
+$('#linkGo').onclick = async () => {
+  const custom = $('input[name=linkMode]:checked').value === 'custom';
+  const url = $('#linkUrl').value.trim();
+  if (custom && !url) { linkMsg('接続URLを入れてね', true); return; }
+  $('#linkGo').disabled = true;
+  linkMsg(custom ? 'そのURLに繋がるか確認しています…' : '');
+  try {
+    const r = await api('/api/bot-link/create', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ database_url: custom ? url : null }),
+    });
+    $('#linkUrl').value = '';
+    $('#linkCmd').textContent = `cd ~/guerrilla-demen-bot\n${r.command}`;
+    $('#linkForm').hidden = true; $('#linkOut').hidden = false;
+    linkMsg(`接続先: ${r.target ? r.target.label : '?'}${r.same_as_site ? '（このサイトと同じ）' : ''}。実行後、上の「BOT」が「稼働中」になれば完了です`);
+    clearInterval(linkTimer);
+    const tick = () => {
+      const left = r.expires - Math.floor(Date.now() / 1000);
+      if (left <= 0) { clearInterval(linkTimer); $('#linkLeft').textContent = '（期限切れ。やり直してね）'; return; }
+      $('#linkLeft').textContent = `残り ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+    };
+    tick(); linkTimer = setInterval(tick, 1000);
+  } catch (err) {
+    if (err.message !== 'login') linkMsg(err.message, true);
+  } finally { $('#linkGo').disabled = false; }
+};
+$('#linkCopy').onclick = async () => {
+  try { await navigator.clipboard.writeText($('#linkCmd').textContent); toast('コピーしました'); }
+  catch { toast('コピーできませんでした。選択してコピーしてね'); }
+};
+$('#linkAgain').onclick = () => {
+  clearInterval(linkTimer); $('#linkOut').hidden = true; $('#linkForm').hidden = false; $('#linkCmd').textContent = ''; linkMsg('');
+};
 $('#connRe').onclick = () => { $('#connRe').disabled = true; loadSettings().catch(fail).finally(() => $('#connRe').disabled = false); };
 
 // ---------- 共通 ----------

@@ -70,10 +70,14 @@ Discordでログインして、スマホ/PCから 参加記録・月の集計・
 3. 今までの記録を引き継ぐなら、`demen.db` がある場所で `.env` に `DATABASE_URL` を書いて `python migrate_to_cloud.py`
 
 ### 2. BOT（VPS）を Supabase に切り替える
-VPS の `.env` に `DATABASE_URL=...` を追加して
+**かんたん**: Web版（手順4のあと）の **設定タブ → BOTの接続先データベース** で接続先を選んで「接続コマンドを発行」→ 出てきたコマンドを VPS に貼るだけ。`.env` への書き込み・手元の `demen.db` の記録のコピー・再起動まで自動でやる（コマンドは10分で無効。サーバー管理者だけが発行できる）。
+
+手でやる場合は、VPS の `.env` に `DATABASE_URL=...` を追加して
 ```bash
 git pull && venv/bin/pip install -r requirements.txt && pm2 restart demen-bot
 ```
+
+接続できているかは、設定タブの「接続状況」で BOT が「稼働中」になっていれば OK。
 
 ### 3. Discord のログイン設定
 Developer Portal → 同じアプリの **OAuth2**

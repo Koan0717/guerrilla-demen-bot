@@ -6,3 +6,4 @@ start.bat
 ecosystem.config.js
 .claude/
 migrate_to_cloud.py
+connect_db.py
