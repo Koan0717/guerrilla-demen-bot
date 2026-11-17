@@ -163,7 +163,7 @@
         <ul class="conn" id="conn"><li class="empty">確認中…</li></ul>
         <div class="row-end"><small id="connAt"></small><button class="btn sub" id="connRe">↻ 再チェック</button></div>
       </div>
-      <div class="card" id="infoCard"><h2>情報</h2><dl class="kv" id="info"></dl></div>
+      <div class="card" id="infoCard" hidden><h2>情報</h2><dl class="kv" id="info"></dl></div>
     </section>
   </main>
 </div>
@@ -187,6 +187,8 @@ async function api(path, opts = {}) {
   const res = await fetch(path, { credentials: 'same-origin', ...opts });
   if (res.status === 401) { showLogin(); throw new Error('login'); }
   const data = await res.json().catch(() => ({}));
+  if (res.status === 404 && !data.error && !data.detail)
+    throw new Error('サーバー（Python）に繋がりません（404）。Vercel のデプロイ設定を確認してね');
   if (!res.ok) throw new Error(data.error || `通信エラー（${res.status}）`);
   return data;
 }
@@ -281,7 +283,15 @@ function connRow(name, cls, state, detail) {
 }
 
 async function loadSettings() {
-  const st = await api('/api/status');
+  let st;
+  try { st = await api('/api/status'); } catch (err) {
+    if (err.message === 'login') throw err;
+    $('#conn').innerHTML = connRow('Webサーバー', 'ng', '繋がりません', esc(err.message)) +
+      connRow('データベース', '', '不明', 'Webサーバーに繋がらないので確認できません') +
+      connRow('BOT', '', '不明', 'Webサーバーに繋がらないので確認できません');
+    $('#connAt').textContent = '';
+    return;
+  }
   const d = st.database, b = st.bot;
   const dbRow = d.ok
     ? connRow('データベース', 'ok', '接続OK', `${esc(d.kind)}・応答 ${d.latency_ms}ms`)
@@ -310,8 +320,8 @@ function render() {
   showError('');
   $$('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   $$('[data-view]').forEach(v => v.hidden = v.dataset.view !== tab);
-  $$('.mLabel').forEach(l => l.textContent = jpMonth(month));
   if (!ME) { loadSettings().catch(fail); return; }  // DBに繋がらないときは設定（接続状況）だけ見られる
+  $$('.mLabel').forEach(l => l.textContent = jpMonth(month));
   $$('.mNext').forEach(b => b.disabled = month >= ME.today.slice(0, 7));
   ({ board: loadBoard, summary: loadSummary, my: loadMy, settings: loadSettings })[tab]().catch(fail);
 }
