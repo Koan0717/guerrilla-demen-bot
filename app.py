@@ -197,6 +197,42 @@ def api_me(user=Depends(current_user)):
     }
 
 
+BOT_ONLINE_SECONDS = 90  # BOTは30秒ごとに生存報告するので、これより古ければ止まっているとみなす
+
+
+@app.get("/api/status")
+def api_status(user=Depends(current_user)):
+    """設定画面の「接続状況」。DBが落ちていても必ず答える"""
+    global _conn
+    url = os.environ.get("DATABASE_URL") or ""
+    database = {"ok": False, "kind": "Postgres" if url else "SQLite（この端末のファイル）", "latency_ms": None, "error": None}
+    bot = {"state": "unknown", "name": None, "seen": None, "seconds_ago": None, "started": None, "latency_ms": None}
+    row = None
+    try:
+        t = time.perf_counter()
+        conn = get_db()
+        db.ping(conn)
+        database["latency_ms"] = round((time.perf_counter() - t) * 1000)
+        database["ok"] = True
+        row = db.get_settings(conn, GUILD_ID)
+    except Exception as e:
+        _conn = None
+        database["error"] = _explain(e)
+
+    if row is not None:
+        seen = row["bot_seen"]
+        if not seen:
+            bot["state"] = "never"
+        else:
+            ago = int(time.time() - datetime.fromisoformat(seen).timestamp())
+            bot.update(
+                state="online" if ago <= BOT_ONLINE_SECONDS else "offline",
+                name=row["bot_name"], seen=seen, seconds_ago=max(ago, 0),
+                started=row["bot_started"], latency_ms=row["bot_latency_ms"],
+            )
+    return {"database": database, "bot": bot, "guild_id": str(GUILD_ID), "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+
+
 @app.get("/api/day")
 def api_day(date: str, user=Depends(current_user)):
     if not valid_date(date):

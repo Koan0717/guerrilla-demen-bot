@@ -84,6 +84,22 @@
   .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--text); color: var(--bg);
     padding: 10px 16px; border-radius: 999px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; }
   .toast.show { opacity: 1; }
+  .conn { list-style: none; margin: 0; padding: 0; }
+  .conn li { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
+  .conn li:first-child { border-top: 0; padding-top: 4px; }
+  .conn .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+  .conn .dot.ok { background: var(--ok); box-shadow: 0 0 0 4px var(--ok-soft); }
+  .conn .dot.ng { background: #e04848; box-shadow: 0 0 0 4px rgba(224,72,72,.18); }
+  .conn .dot.warn { background: var(--gold); }
+  .conn .name { font-weight: 700; }
+  .conn .state { font-weight: 700; font-size: 14px; text-align: right; }
+  .conn .state.ok { color: var(--ok); } .conn .state.ng { color: #e04848; } .conn .state.warn { color: var(--gold); }
+  .conn .detail { grid-column: 2 / 4; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+  .conn .detail code { font-size: 12px; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 14px; }
+  .kv dt { color: var(--muted); } .kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  .row-end { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 4px; }
+  .row-end small { color: var(--muted); font-size: 12px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -106,6 +122,7 @@
       <button data-tab="board" class="on">出面表</button>
       <button data-tab="summary">集計</button>
       <button data-tab="my">自分</button>
+      <button data-tab="settings">設定</button>
     </nav>
 
     <section data-view="board">
@@ -138,6 +155,15 @@
       </div>
       <div class="stats" id="myStats"></div>
       <div class="card"><h2>参加した日</h2><ul class="hist" id="hist"></ul></div>
+    </section>
+
+    <section data-view="settings" hidden>
+      <div class="card">
+        <h2>接続状況</h2>
+        <ul class="conn" id="conn"><li class="empty">確認中…</li></ul>
+        <div class="row-end"><small id="connAt"></small><button class="btn sub" id="connRe">↻ 再チェック</button></div>
+      </div>
+      <div class="card" id="infoCard"><h2>情報</h2><dl class="kv" id="info"></dl></div>
     </section>
   </main>
 </div>
@@ -238,6 +264,45 @@ async function loadMy() {
     : '<li class="empty">この月の記録はないよ</li>';
 }
 
+// ---------- 設定（接続状況） ----------
+function ago(sec) {
+  if (sec < 60) return `${sec}秒前`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}分前`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}時間前`;
+  return `${Math.floor(sec / 86400)}日前`;
+}
+function jpTime(iso) {
+  const d = new Date(iso);
+  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+function connRow(name, cls, state, detail) {
+  return `<li><span class="dot ${cls}"></span><span class="name">${name}</span><span class="state ${cls}">${state}</span>
+    <div class="detail">${detail}</div></li>`;
+}
+
+async function loadSettings() {
+  const st = await api('/api/status');
+  const d = st.database, b = st.bot;
+  const dbRow = d.ok
+    ? connRow('データベース', 'ok', '接続OK', `${esc(d.kind)}・応答 ${d.latency_ms}ms`)
+    : connRow('データベース', 'ng', '接続できません', `${esc(d.kind)}<br><code>${esc(d.error || '')}</code>`);
+  let botRow;
+  if (!d.ok) botRow = connRow('BOT', '', '不明', 'データベースに繋がらないので確認できません');
+  else if (b.state === 'online') botRow = connRow('BOT', 'ok', '稼働中',
+    `${esc(b.name || '')}・最終応答 ${ago(b.seconds_ago)}${b.latency_ms != null ? `・Discord応答 ${b.latency_ms}ms` : ''}` +
+    (b.started ? `<br>起動 ${jpTime(b.started)}` : ''));
+  else if (b.state === 'offline') botRow = connRow('BOT', 'ng', '停止中？',
+    `${esc(b.name || '')}・最後の応答は ${ago(b.seconds_ago)}（${jpTime(b.seen)}）<br>VPSで <code>pm2 status</code> / <code>pm2 logs demen-bot</code> を確認してね`);
+  else botRow = connRow('BOT', 'warn', '応答記録なし',
+    'まだBOTから一度も報告がありません。BOTを最新版に更新して、Webと同じ DATABASE_URL を設定してね');
+  $('#conn').innerHTML = dbRow + botRow;
+  $('#connAt').textContent = `${jpTime(st.checked_at)} 時点`;
+  $('#infoCard').hidden = !ME;
+  if (ME) $('#info').innerHTML =
+    `<dt>単価</dt><dd>${yen(ME.price)}</dd><dt>今日（朝5時切替）</dt><dd>${jpDate(ME.today)}</dd><dt>サーバーID</dt><dd>${esc(st.guild_id)}</dd>`;
+}
+$('#connRe').onclick = () => { $('#connRe').disabled = true; loadSettings().catch(fail).finally(() => $('#connRe').disabled = false); };
+
 // ---------- 共通 ----------
 function fail(err) { if (err.message !== 'login') showError(err.message); }
 
@@ -246,8 +311,9 @@ function render() {
   $$('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
   $$('[data-view]').forEach(v => v.hidden = v.dataset.view !== tab);
   $$('.mLabel').forEach(l => l.textContent = jpMonth(month));
+  if (!ME) { loadSettings().catch(fail); return; }  // DBに繋がらないときは設定（接続状況）だけ見られる
   $$('.mNext').forEach(b => b.disabled = month >= ME.today.slice(0, 7));
-  ({ board: loadBoard, summary: loadSummary, my: loadMy })[tab]().catch(fail);
+  ({ board: loadBoard, summary: loadSummary, my: loadMy, settings: loadSettings })[tab]().catch(fail);
 }
 
 $$('.tabs button').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
@@ -256,11 +322,18 @@ $$('.mNext').forEach(b => b.onclick = () => { if (month < ME.today.slice(0, 7)) 
 
 // 他の人の押した分も反映されるよう、出面表を見ている間は30秒ごとに更新
 setInterval(() => { if (ME && tab === 'board' && !document.hidden) loadBoard().catch(() => {}); }, 30000);
+setInterval(() => { if (tab === 'settings' && !$('#app').hidden && !document.hidden) loadSettings().catch(() => {}); }, 30000);
 
 (async () => {
   const q = new URLSearchParams(location.search);
   if (q.get('error')) { showError(ERRORS[q.get('error')] || 'エラーが起きました'); history.replaceState(null, '', '/'); }
-  try { ME = await api('/api/me'); } catch (err) { fail(err); return; }
+  try { ME = await api('/api/me'); } catch (err) {
+    if (err.message === 'login') return;
+    // ログインはできているがサーバー側で失敗 → 原因を探せるよう設定タブだけ開く
+    $$('.tabs button').forEach(b => b.hidden = b.dataset.tab !== 'settings');
+    $('#app').hidden = false; tab = 'settings'; render(); showError(err.message);
+    return;
+  }
   date = ME.today; month = ME.today.slice(0, 7);
   $('#me').innerHTML = `${ME.user.avatar ? `<img src="${esc(ME.user.avatar)}" alt="">` : ''}<span>${esc(ME.user.name)}</span> <a href="/logout">ログアウト</a>`;
   $('#me').hidden = false; $('#login').hidden = true; $('#app').hidden = false;

@@ -44,7 +44,11 @@ SCHEMA = [
         board_channel_id  BIGINT,   -- 常設パネル
         board_message_id  BIGINT,
         board_date        TEXT,
-        board_dirty       INTEGER NOT NULL DEFAULT 0  -- Webで変更があったら1
+        board_dirty       INTEGER NOT NULL DEFAULT 0, -- Webで変更があったら1
+        bot_seen          TEXT,     -- BOTが最後に生存報告した時刻（UTC ISO）
+        bot_started       TEXT,     -- BOTが起動した時刻
+        bot_name          TEXT,
+        bot_latency_ms    INTEGER   -- Discordとの応答速度
     )
     """,
 ]
@@ -56,6 +60,10 @@ EXTRA_COLUMNS = {
         ("board_message_id", "BIGINT"),
         ("board_date", "TEXT"),
         ("board_dirty", "INTEGER NOT NULL DEFAULT 0"),
+        ("bot_seen", "TEXT"),
+        ("bot_started", "TEXT"),
+        ("bot_name", "TEXT"),
+        ("bot_latency_ms", "INTEGER"),
     ],
 }
 
@@ -191,6 +199,21 @@ def mark_panel_dirty(conn, guild_id):
 
 def panel_targets(conn):
     return conn.execute("SELECT * FROM settings WHERE board_message_id IS NOT NULL").fetchall()
+
+
+# ---------- 接続状況 ----------
+def bot_heartbeat(conn, guild_id, name, started, latency_ms):
+    """BOTが生きていることを記録する（Webの設定画面で表示）"""
+    get_settings(conn, guild_id)
+    conn.execute(
+        "UPDATE settings SET bot_seen=?, bot_started=?, bot_name=?, bot_latency_ms=? WHERE guild_id=?",
+        (_now(), started, name, latency_ms, guild_id),
+    )
+    conn.commit()
+
+
+def ping(conn):
+    conn.execute("SELECT 1").fetchone()
 
 
 # ---------- 出席 ----------

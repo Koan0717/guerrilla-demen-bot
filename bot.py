@@ -234,12 +234,26 @@ class DemenBot(discord.Client):
         else:
             await self.tree.sync()
         auto_post_loop.start()
+        heartbeat_loop.start()
 
     async def on_ready(self):
         print(f"ログインしました: {self.user} (ID: {self.user.id})")
 
 
 bot = DemenBot()
+STARTED_AT = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+@tasks.loop(seconds=30)
+async def heartbeat_loop():
+    """Webの設定画面に「BOTは動いている」と伝えるため、DBに生存報告を書く"""
+    latency = bot.latency
+    ms = int(latency * 1000) if latency == latency and latency != float("inf") else None
+    for g in bot.guilds:
+        try:
+            db.bot_heartbeat(conn, g.id, str(bot.user), STARTED_AT, ms)
+        except Exception as e:
+            print(f"生存報告に失敗: {e}")
 
 
 @tasks.loop(seconds=30)
@@ -296,6 +310,7 @@ async def refresh_panel(gid):
 
 @auto_post_loop.before_loop
 @panel_refresh_loop.before_loop
+@heartbeat_loop.before_loop
 async def _wait_ready():
     await bot.wait_until_ready()
 
